@@ -305,6 +305,20 @@ Stated plainly, because finding these yourself would waste your time.
 
 ---
 
+## Where everything is
+
+| You want | Look at |
+|---|---|
+| Deployment steps, both paths | `docs/DEPLOYMENT.md` |
+| What to do when it breaks | `docs/RUNBOOK.md` |
+| Why it is shaped this way | `docs/ARCHITECTURE.md` |
+| Secrets, the auth model, leak response | `docs/SECURITY.md` |
+| Every setting, with commentary | `.env.example` |
+| Database schema | `echoes/db/migrations/` |
+| The n8n workflow | Already on your instance: *Echoes of History — daily production* |
+
+---
+
 ## Development
 
 ```bash
@@ -313,7 +327,7 @@ export ECHOES_TEST_DATABASE_URL=postgresql://...   # for the database tests
 .venv/bin/python -m pytest
 ```
 
-132 tests. They assert behaviour, not shape: scenarios are constructed so the
+144 tests. They assert behaviour, not shape: scenarios are constructed so the
 correct answer is known, the clock is pinned, and the encoder is real ffmpeg
 rather than a mock. Several of them found real bugs in this code and the code
 changed.
