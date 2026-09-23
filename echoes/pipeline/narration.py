@@ -140,6 +140,9 @@ def run(
     cursor = 0.0
     synthesised = reused = 0
     previous: Chunk | None = None
+    # Silence must be written at the rate the voice produces, not at the
+    # delivery rate. See ffmpeg.concat_audio for what mixing them costs.
+    gap_rate = int(getattr(tts, "sample_rate", sample_rate) or sample_rate)
 
     for chunk in chunks:
         digest = chunk_hash(chunk.text, voice, length_scale)
@@ -147,9 +150,9 @@ def run(
 
         gap = gap_for(previous, chunk)
         if gap > 0:
-            pad = parts_dir / f"gap-{chunk.ordinal:05d}.wav"
+            pad = parts_dir / f"gap-{chunk.ordinal:05d}-{gap_rate}.wav"
             if not pad.exists():
-                ffmpeg.silence(pad, gap, sample_rate=sample_rate)
+                ffmpeg.silence(pad, gap, sample_rate=gap_rate)
             pieces.append(pad)
             cursor += gap
 
@@ -216,4 +219,15 @@ def _chapter_timings(
             duration_s=round(min(end, total) - start, 3),
         ))
     out.sort(key=lambda t: t.start_s)
+    if not out:
+        return out
+
+    # Make the spans contiguous and cover the whole recording. The pauses
+    # between chapters, and any tail after the last word, are narration time:
+    # if no chapter owns them the visual timeline is built short, and the
+    # picture track ends before the voice does.
+    out[0].start_s = 0.0
+    for index in range(len(out) - 1):
+        out[index].duration_s = round(out[index + 1].start_s - out[index].start_s, 3)
+    out[-1].duration_s = round(total - out[-1].start_s, 3)
     return out

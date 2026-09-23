@@ -36,6 +36,13 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("doctor", help="check configuration and providers")
     sub.add_parser("reconcile", help="resolve uploads whose outcome is unknown")
 
+    calibrate = sub.add_parser(
+        "calibrate",
+        help="fit PIPER_LENGTH_SCALE so the voice hits NARRATION_WPM")
+    calibrate.add_argument("--target-wpm", type=float)
+    calibrate.add_argument("--save", action="store_true",
+                           help="store the measured rate for the script engine")
+
     topics = sub.add_parser("topics", help="add candidate topics")
     topics.add_argument("--count", type=int, default=8)
 
@@ -61,6 +68,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "doctor":
         return _doctor()
+
+    if args.command == "calibrate":
+        return _calibrate(args.target_wpm, args.save)
 
     orchestrator = _orchestrator()
 
@@ -92,6 +102,68 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if result.succeeded else 1
 
     return 2
+
+
+def _calibrate(target_wpm: float | None, save: bool) -> int:
+    """Find the length scale that makes this voice speak at the target rate.
+
+    Worth doing once per voice. The relationship is not ``1 / length_scale``:
+    sentence-final pauses do not stretch with the scale, so the fit has a
+    non-zero intercept. Two probes are taken and a line solved through them.
+
+    The result is a *starting* figure. The real rate on documentary prose is
+    lower again -- measured at 133 words per minute against a configured 150,
+    because real prose has far more sentence breaks than a calibration
+    passage. ``--save`` records the measured rate so the script engine sizes
+    its next script from it.
+    """
+    from .providers.tts.calibrate import measure_wpm, solve_length_scale
+    from .providers.tts.piper import PiperProvider
+
+    settings = load_settings()
+    target = target_wpm or settings.duration.words_per_minute
+
+    if settings.tts_provider.lower() != "piper":
+        print(json.dumps({
+            "error": f"calibration applies to TTS_PROVIDER=piper; this "
+                     f"deployment uses {settings.tts_provider!r}"}, indent=2))
+        return 1
+
+    probe = PiperProvider(settings.piper_voice, settings.piper_voice_dir)
+    if not probe.available():
+        print(json.dumps({
+            "error": f"no Piper voice found for {settings.piper_voice!r} in "
+                     f"{settings.piper_voice_dir}"}, indent=2))
+        return 1
+
+    def make(scale: float):
+        return PiperProvider(settings.piper_voice, settings.piper_voice_dir,
+                             length_scale=scale)
+
+    scale, predicted = solve_length_scale(make, target)
+    actual = measure_wpm(make(scale))
+
+    report = {
+        "voice": settings.piper_voice,
+        "target_wpm": round(target, 1),
+        "length_scale": round(scale, 3),
+        "predicted_wpm": round(predicted, 1),
+        "measured_wpm": round(actual, 1),
+        "set_this": f"PIPER_LENGTH_SCALE={scale:.3f}",
+        "note": ("This is measured on a calibration passage. Real documentary "
+                 "prose runs slower; the narration stage measures the true "
+                 "rate and feeds it back automatically."),
+    }
+
+    if save:
+        pool.init_pool(settings.database_url)
+        from .db import repo
+        repo.set_setting(f"measured_wpm:{settings.piper_voice}:{scale:.3f}",
+                         round(actual, 2))
+        report["saved"] = True
+
+    print(json.dumps(report, indent=2))
+    return 0
 
 
 def _doctor() -> int:

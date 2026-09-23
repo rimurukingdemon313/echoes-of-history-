@@ -14,8 +14,13 @@ TOPIC_ENGINE_VERSION = "topic-1.0.0"
 RESEARCH_ENGINE_VERSION = "research-1.0.0"
 SCRIPT_ENGINE_VERSION = "script-1.0.0"
 FACTCHECK_ENGINE_VERSION = "factcheck-1.0.0"
-NARRATION_ENGINE_VERSION = "narration-1.0.0"
-VISUAL_ENGINE_VERSION = "visual-1.0.0"
+# 1.1.0: chapter spans now tile the whole recording, and silence is
+# written at the voice's own sample rate. Both change measured chapter
+# timings, so results either side of this stamp are not comparable.
+NARRATION_ENGINE_VERSION = "narration-1.1.0"
+# 1.1.0: segment spans advance by rounded durations, so they sum to the
+# chapter length exactly instead of drifting across ~300 segments.
+VISUAL_ENGINE_VERSION = "visual-1.1.0"
 RENDER_ENGINE_VERSION = "render-1.0.0"
 METADATA_ENGINE_VERSION = "metadata-1.0.0"
 PROMPT_VERSION = "prompt-1.0.0"

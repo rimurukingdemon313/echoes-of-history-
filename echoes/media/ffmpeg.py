@@ -115,29 +115,55 @@ def probe(path: Path) -> MediaInfo:
     )
 
 
-def concat_audio(parts: Sequence[Path], out_path: Path, *, sample_rate: int = 48000
-                 ) -> float:
+def concat_audio(parts: Sequence[Path], out_path: Path, *, sample_rate: int = 48000,
+                 tolerance_s: float = 0.5) -> float:
     """Join audio parts into one file, re-encoding once to a uniform format.
 
-    Piper emits WAV at its own rate; the parts must agree before they can be
-    joined, so this normalises rather than stream-copying.
+    **Every part must already share a sample rate.** The concat demuxer takes
+    its stream parameters from the *first* file and applies them to all of
+    them: a 0.45-second gap written at 48 kHz, concatenated behind 16 kHz
+    narration, is read as 21,600 frames at 16 kHz and plays for 1.35 seconds.
+    Across one documentary's gaps that silently added 51 seconds of audio the
+    picture track knew nothing about.
+
+    So this uses ``-filter_complex concat``, which resamples each input to a
+    common rate rather than reinterpreting it, and then checks the result
+    against the sum of the parts. A mismatch raises instead of being
+    discovered later as a picture/audio drift.
     """
     if not parts:
         raise Permanent("refusing to concatenate zero audio parts")
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    listing = out_path.with_suffix(".concat.txt")
-    listing.write_text(
-        "\n".join(f"file '{Path(p).resolve()}'" for p in parts) + "\n",
-        encoding="utf-8",
+
+    paths = [Path(p) for p in parts]
+    expected = sum(probe(p).duration_s for p in paths)
+
+    args: list[str] = ["ffmpeg", "-y", "-loglevel", "error"]
+    for path in paths:
+        args += ["-i", str(path)]
+    # aresample on every input, then concat: each part is converted to the
+    # target rate, so none of them can be reinterpreted at another's.
+    chain = "".join(
+        f"[{i}:a]aresample={sample_rate},aformat=sample_fmts=s16:channel_layouts=mono[a{i}];"
+        for i in range(len(paths))
     )
-    _run([
-        "ffmpeg", "-y", "-loglevel", "error",
-        "-f", "concat", "-safe", "0", "-i", str(listing),
-        "-ar", str(sample_rate), "-ac", "1",
+    inputs = "".join(f"[a{i}]" for i in range(len(paths)))
+    args += [
+        "-filter_complex", f"{chain}{inputs}concat=n={len(paths)}:v=0:a=1[out]",
+        "-map", "[out]", "-ar", str(sample_rate), "-ac", "1",
         "-c:a", "pcm_s16le", str(out_path),
-    ], what="audio concat")
-    listing.unlink(missing_ok=True)
-    return probe(out_path).duration_s
+    ]
+    _run(args, what="audio concat")
+
+    actual = probe(out_path).duration_s
+    drift = abs(actual - expected)
+    if drift > max(tolerance_s, expected * 0.002):
+        raise Permanent(
+            f"audio concatenation produced {actual:.2f}s from parts totalling "
+            f"{expected:.2f}s ({drift:.2f}s apart). The parts do not agree on "
+            f"a format."
+        )
+    return actual
 
 
 def normalise_loudness(

@@ -151,3 +151,69 @@ def test_mux_produces_a_file_with_both_streams(tmp_path, plates):
     ffmpeg.mux(picture, audio, final)
     info = ffmpeg.probe(final)
     assert info.has_video and info.has_audio
+
+
+# ------------------------------------------------- regressions worth keeping
+def test_parts_with_different_sample_rates_concatenate_to_the_right_length(tmp_path):
+    """The concat demuxer applies the FIRST file's rate to every input.
+
+    A 1.6-second gap written at 48 kHz, placed behind 16 kHz narration, was
+    read as 16 kHz and played for 4.8 seconds. Across one documentary that
+    silently added 51 seconds of audio the picture track knew nothing about,
+    and the render refused to mux.
+    """
+    speech_a = tmp_path / "a16.wav"
+    speech_b = tmp_path / "b16.wav"
+    for path, freq in ((speech_a, 200), (speech_b, 300)):
+        ffmpeg._run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi",
+                     "-i", f"sine=frequency={freq}:duration=10:sample_rate=16000",
+                     "-c:a", "pcm_s16le", str(path)])
+    gap = tmp_path / "gap48.wav"
+    ffmpeg.silence(gap, 1.6, sample_rate=48000)
+
+    total = ffmpeg.concat_audio([speech_a, gap, speech_b], tmp_path / "joined.wav",
+                                sample_rate=48000)
+    assert total == pytest.approx(21.6, abs=0.05)
+
+
+def test_chapter_spans_tile_the_whole_recording(tmp_path):
+    """Every second of narration must belong to a chapter.
+
+    The gaps between chapters and the tail after the last word are narration
+    time. If no chapter owns them the visual timeline is built short and the
+    picture ends before the voice does.
+    """
+    from echoes.pipeline import narration as narration_mod
+    from echoes.providers.tts.silent import SilentProvider
+
+    chapters = [{"id": i + 1, "ordinal": i, "heading": f"C{i}",
+                 "body": " ".join(["word"] * 120)} for i in range(4)]
+    result = narration_mod.run(
+        SilentProvider(150.0), chapters, tmp_path, max_chars=300,
+        voice="silent", length_scale=1.0,
+    )
+    timings = result.timings
+    assert timings[0].start_s == 0.0
+    for i in range(len(timings) - 1):
+        assert timings[i].start_s + timings[i].duration_s == \
+            pytest.approx(timings[i + 1].start_s, abs=0.01)
+    covered = sum(t.duration_s for t in timings)
+    assert covered == pytest.approx(result.duration_s, abs=0.05)
+
+
+def test_the_visual_timeline_covers_the_whole_narration(tmp_path):
+    """End to end: chapter spans -> segment spans -> total picture length."""
+    from echoes.pipeline import narration as narration_mod
+    from echoes.pipeline.visuals import split_chapter
+    from echoes.providers.tts.silent import SilentProvider
+
+    chapters = [{"id": i + 1, "ordinal": i, "heading": f"C{i}",
+                 "body": " ".join(["word"] * 200)} for i in range(5)]
+    result = narration_mod.run(
+        SilentProvider(150.0), chapters, tmp_path, max_chars=400,
+        voice="silent", length_scale=1.0,
+    )
+    picture = 0.0
+    for timing in result.timings:
+        picture += sum(d for _, d in split_chapter(timing.start_s, timing.duration_s))
+    assert picture == pytest.approx(result.duration_s, abs=0.05)
