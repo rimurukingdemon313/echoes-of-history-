@@ -1,0 +1,22 @@
+# Runtime dependencies.
+#
+# Deliberately short. Every addition is another thing that can break a
+# redeploy of a system meant to run unattended for weeks.
+
+# PostgreSQL. Everything durable lives here; a container filesystem does not
+# survive a redeploy.
+psycopg[binary]>=3.1,<4
+psycopg_pool>=3.2,<4
+
+# HTTP client with proper timeout and proxy handling, used by every provider.
+httpx>=0.27,<1
+
+# Image work: plate preparation, perceptual hashing, thumbnails.
+Pillow>=10.3,<12
+
+# Local neural text-to-speech. No API, no per-character cost, no rate limit.
+piper-tts>=1.2
+
+# The HTTP surface n8n drives and the dashboard reads.
+fastapi>=0.110,<1
+uvicorn[standard]>=0.29,<1

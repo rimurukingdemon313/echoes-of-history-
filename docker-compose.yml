@@ -1,0 +1,64 @@
+# Self-hosting path: everything this system needs, on one machine, free.
+#
+# Railway removed its free service tier, so this exists as the no-cost
+# option. It is the same image and the same database engine the Railway
+# deployment uses, so moving between them is a matter of pointing
+# DATABASE_URL somewhere else.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: echoes
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: echoes
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U echoes -d echoes"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      args:
+        PIPER_VOICE: ${PIPER_VOICE:-en_GB-alan-medium}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://echoes:${POSTGRES_PASSWORD}@db:5432/echoes
+      PORT: 8080
+      # Everything else comes from .env; see .env.example.
+    env_file:
+      - .env
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    volumes:
+      # Durable media and work state. Without this, an interrupted render
+      # restarts from nothing.
+      - app-data:/app/data
+
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    environment:
+      GENERIC_TIMEZONE: ${TZ:-Asia/Baghdad}
+      TZ: ${TZ:-Asia/Baghdad}
+      N8N_SECURE_COOKIE: "false"
+      # The workflow calls the app by service name on the compose network,
+      # so the app's port never needs to be public for n8n to drive it.
+      ECHOES_BASE_URL: http://app:8080
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    volumes:
+      - n8n-data:/home/node/.n8n
+
+volumes:
+  db-data:
+  app-data:
+  n8n-data:
