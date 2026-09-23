@@ -220,11 +220,24 @@ class Settings:
     duration: DurationPolicy = field(default_factory=DurationPolicy)
     render: RenderPolicy = field(default_factory=RenderPolicy)
 
+    # Where the music beds live. Resolved absolutely: a relative path would
+    # be read against whatever directory the process happened to start in,
+    # and the failure is silent -- the renderer simply finds no music and
+    # produces narration only, which looks like a deliberate choice.
+    music_dir: Path | None = None
+
     # ---- api -------------------------------------------------------------
     api_port: int = 8080
     api_token: str | None = None
 
     # -----------------------------------------------------------------
+    @property
+    def beds_dir(self) -> Path:
+        if self.music_dir is not None:
+            return self.music_dir
+        # Default: the assets directory shipped beside the package.
+        return Path(__file__).resolve().parent.parent / "assets" / "music"
+
     @property
     def media_dir(self) -> Path:
         return self.data_dir / "media"
@@ -374,6 +387,7 @@ def load_settings() -> Settings:
             music_gain_db=_float("MUSIC_GAIN_DB", -26.0),
             segment_workers=_int("RENDER_SEGMENT_WORKERS", 2),
         ),
+        music_dir=Path(_str("MUSIC_DIR")) if _str("MUSIC_DIR") else None,
         api_port=_int("PORT", 8080),
         api_token=_str("API_TOKEN"),
     )

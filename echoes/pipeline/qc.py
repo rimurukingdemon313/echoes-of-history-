@@ -24,7 +24,7 @@ from typing import Any, Sequence
 
 from ..logging import get_logger
 from ..media import ffmpeg
-from ..providers.llm.offline import SYNTHETIC_MARKER
+from ..providers.llm.offline import SYNTHETIC_GENERATORS
 from .metadata import DESCRIPTION_MAX, TITLE_MAX, chapters_valid
 from .script import internal_repetition, style_violations
 
@@ -107,6 +107,7 @@ def run(
     visual_assets: Sequence[dict[str, Any]],
     unsupported_ratio: float,
     previous_scripts: Sequence[str] = (),
+    script_generator: str = "unknown",
     dry_run: bool = True,
 ) -> QCReport:
     report = QCReport()
@@ -139,10 +140,15 @@ def run(
     report.add("script_original_vs_previous", worst_cross <= MAX_CROSS_REPETITION,
                detail=f"max overlap with an earlier script {worst_cross:.3f}")
 
-    report.add("script_not_synthetic",
-               SYNTHETIC_MARKER not in full_script or dry_run,
-               detail="script was produced by the offline simulator"
-                      if SYNTHETIC_MARKER in full_script else "genuine")
+    # Fails closed. A script whose author cannot be identified is treated the
+    # same as one known to be synthetic: absence of evidence is not evidence
+    # that a real model wrote it. This is deliberately conservative, and the
+    # cost of being wrong is one re-run rather than a simulator's prose on a
+    # real channel.
+    generator = (script_generator or "unknown").lower()
+    trustworthy = generator not in SYNTHETIC_GENERATORS and generator != "unknown"
+    report.add("script_not_synthetic", trustworthy or dry_run,
+               detail=f"written by {script_generator!r}")
 
     # ---- research -------------------------------------------------------
     report.add("sources_present",

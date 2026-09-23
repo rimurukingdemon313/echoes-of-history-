@@ -10,7 +10,6 @@ from echoes.errors import AmbiguousOutcome, Permanent, ProviderUnavailable, Rate
 from echoes.db import repo
 from echoes.pipeline import qc
 from echoes.pipeline.runner import Context, PipelineRunner
-from echoes.providers.llm.offline import SYNTHETIC_MARKER
 from echoes.providers.registry import build as build_providers
 
 
@@ -161,7 +160,7 @@ def _qc(settings, **overrides):
                  for i in range(10)],
         visual_assets=[{"licence": "CC0", "provider": "wikimedia",
                         "perceptual_hash": f"{i:016x}"} for i in range(20)],
-        unsupported_ratio=0.01, dry_run=True,
+        unsupported_ratio=0.01, script_generator="gemini", dry_run=True,
     )
     base.update(overrides)
     return qc.run(**base)
@@ -172,10 +171,16 @@ def _blocked(report):
 
 
 def test_an_offline_script_cannot_pass_on_a_live_run(settings):
-    bodies = ["word " * 6000, "other " * 6000 + SYNTHETIC_MARKER]
-    assert _qc(settings, chapter_bodies=bodies, dry_run=True) is not None
-    live = _qc(settings, chapter_bodies=bodies, dry_run=False)
-    assert "script_not_synthetic" in _blocked(live)
+    """Recorded as a column, so it cannot be laundered by editing the prose."""
+    assert "script_not_synthetic" not in _blocked(
+        _qc(settings, script_generator="offline", dry_run=True))
+    assert "script_not_synthetic" in _blocked(
+        _qc(settings, script_generator="offline", dry_run=False))
+    assert "script_not_synthetic" not in _blocked(
+        _qc(settings, script_generator="gemini", dry_run=False))
+    # Fails closed: an unidentified author blocks a live run too.
+    assert "script_not_synthetic" in _blocked(
+        _qc(settings, script_generator="unknown", dry_run=False))
 
 
 def test_synthetic_plates_cannot_pass_on_a_live_run(settings):

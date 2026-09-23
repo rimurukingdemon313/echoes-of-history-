@@ -80,6 +80,10 @@ DASHBOARD_HTML = """<!doctype html>
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
   th, td { text-align: left; padding: 7px 10px 7px 0; white-space: nowrap;
            border-bottom: 1px solid var(--line); }
+  /* Truncate the long column rather than letting it push status off-screen.
+     A status you have to scroll sideways to read is a status nobody reads. */
+  td.topic, th.topic { max-width: 40vw; overflow: hidden;
+                       text-overflow: ellipsis; }
   th { color: var(--dim); font-weight: 600; font-size: 11px;
        text-transform: uppercase; letter-spacing: .06em; }
   .note { color: var(--dim); font-size: 12px; margin-top: 10px; }
@@ -108,7 +112,7 @@ DASHBOARD_HTML = """<!doctype html>
   <div class="card">
     <h2>Recent productions</h2>
     <div class="scroll"><table id="recent">
-      <thead><tr><th>#</th><th>Topic</th><th>Status</th><th>Stage</th></tr></thead>
+      <thead><tr><th>#</th><th class="topic">Topic</th><th>Status</th><th>Stage</th></tr></thead>
       <tbody></tbody>
     </table></div>
   </div>
@@ -176,7 +180,7 @@ async function refresh() {
   const cls = {SUCCEEDED: "ok", PUBLISHED: "ok", FAILED: "bad",
                NEEDS_ATTENTION: "bad", RUNNING: "warn"};
   $("recent").querySelector("tbody").innerHTML = (s.recent || []).map(j =>
-    `<tr><td>${esc(j.id)}</td><td>${esc(j.topic)}</td>`
+    `<tr><td>${esc(j.id)}</td><td class="topic" title="${esc(j.topic)}">${esc(j.topic)}</td>`
     + `<td>${pill(j.status, cls[j.status] || "warn")}</td>`
     + `<td>${esc(j.stage || "\\u2014")}</td></tr>`).join("")
     || '<tr><td colspan="4">no productions yet</td></tr>';

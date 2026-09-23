@@ -7,10 +7,11 @@ assembled from the research facts it is handed plus fixed connective
 scaffolding; it is coherent enough to drive narration, timing, rendering and
 quality control, and it is not a documentary anyone should publish.
 
-``PUBLISH_MODE`` is irrelevant to that judgement, so the offline provider
-marks every script it produces. :mod:`echoes.pipeline.qc` refuses to pass a
-video whose script carries the marker unless ``DRY_RUN`` is true, which is
-what stops a synthetic script reaching a real channel.
+``PUBLISH_MODE`` is irrelevant to that judgement. Every script records the
+provider that wrote it in ``scripts.generator``, and
+:mod:`echoes.pipeline.qc` refuses to pass a video written by a provider in
+:data:`SYNTHETIC_GENERATORS` unless ``DRY_RUN`` is true. That is what stops a
+synthetic script reaching a real channel.
 
 Prompts carry a ``TASK:`` header naming what is being asked. A real provider
 ignores it as ordinary prompt text; this one dispatches on it.
@@ -26,7 +27,10 @@ from typing import Any
 
 from ...errors import Permanent
 
-SYNTHETIC_MARKER = "[[SYNTHETIC-OFFLINE-DRAFT]]"
+# Provider names whose output must never reach a real channel. Quality
+# control blocks on these whenever DRY_RUN is false. Recorded against the
+# script row rather than written into the prose, which the voice would read.
+SYNTHETIC_GENERATORS = frozenset({"offline"})
 
 _TASK = re.compile(r"^TASK:\s*([a-z_]+)\s*$", re.MULTILINE)
 # Anchored to a single line. A DOTALL match would run greedily to the last

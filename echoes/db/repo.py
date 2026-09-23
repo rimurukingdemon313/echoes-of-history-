@@ -331,12 +331,15 @@ def research_package_for_job(job_id: int) -> dict[str, Any] | None:
 # ------------------------------------------------------------------ scripts
 
 
-def create_script(*, job_id: int, topic_id: int, version: int) -> dict[str, Any]:
+def create_script(*, job_id: int, topic_id: int, version: int,
+                  generator: str = "unknown") -> dict[str, Any]:
     row = pool.query_one(
-        """INSERT INTO scripts (job_id, topic_id, version) VALUES (%s,%s,%s)
-           ON CONFLICT (job_id, version) DO UPDATE SET version=EXCLUDED.version
+        """INSERT INTO scripts (job_id, topic_id, version, generator)
+           VALUES (%s,%s,%s,%s)
+           ON CONFLICT (job_id, version) DO UPDATE
+             SET version=EXCLUDED.version, generator=EXCLUDED.generator
            RETURNING *""",
-        (job_id, topic_id, version),
+        (job_id, topic_id, version, generator),
     )
     assert row is not None
     return row

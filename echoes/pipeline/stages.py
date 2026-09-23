@@ -21,7 +21,7 @@ from ..db import repo
 from ..errors import Permanent, QualityGateFailed
 from ..logging import get_logger
 from ..media import ffmpeg
-from ..providers.llm.offline import SYNTHETIC_MARKER, OfflineProvider
+from ..providers.llm.offline import SYNTHETIC_GENERATORS
 from ..providers.notify.base import Level
 from ..version import version_stamp
 from . import factcheck, metadata as meta_mod, narration, qc, render, research
@@ -129,14 +129,14 @@ class ScriptStage:
                 f"research instead."
             )
 
-        marker = (f"\n\n{SYNTHETIC_MARKER}"
-                  if isinstance(ctx.providers.llm, OfflineProvider) else "")
+        # Which provider wrote this is recorded as a column, never as a
+        # marker inside the prose -- the prose is the narration script, and a
+        # marker in it would be read aloud by the voice.
         script_row = repo.create_script(job_id=ctx.job_id, topic_id=ctx.topic_id,
-                                        version=1)
+                                        version=1,
+                                        generator=ctx.providers.llm.name)
         repo.replace_chapters(int(script_row["id"]), [
-            {"heading": c.heading,
-             "body": c.body + (marker if index == len(result.chapters) - 1 else "")}
-            for index, c in enumerate(result.chapters)
+            {"heading": c.heading, "body": c.body} for c in result.chapters
         ])
         repo.set_script_duration(int(script_row["id"]), result.estimated_s,
                                  "DRAFT")
@@ -359,8 +359,10 @@ class RenderStage:
     def _prepare_audio(ctx: Context, narration_path: Path, work: Path) -> Path:
         """Normalise loudness, adding a music bed when one is available."""
         policy = ctx.settings.render
-        beds = sorted((Path("assets/music")).glob("*.*")) if Path("assets/music").is_dir() else []
-        beds = [b for b in beds if b.suffix.lower() in (".mp3", ".m4a", ".wav", ".ogg", ".flac")]
+        beds_dir = ctx.settings.beds_dir
+        beds = sorted(beds_dir.glob("*.*")) if beds_dir.is_dir() else []
+        beds = [b for b in beds
+                if b.suffix.lower() in (".mp3", ".m4a", ".wav", ".ogg", ".flac")]
         out = work / "audio-final.m4a"
 
         if beds:
@@ -375,7 +377,8 @@ class RenderStage:
                 true_peak=policy.loudness_true_peak,
             )
         else:
-            log.info("no music bed available; normalising narration only")
+            log.info("no music bed available; normalising narration only",
+                     extra={"looked_in": str(beds_dir)})
             ffmpeg.normalise_loudness(
                 narration_path, out, lufs=policy.loudness_lufs,
                 true_peak=policy.loudness_true_peak,
@@ -487,6 +490,7 @@ class QualityControlStage:
 
         report = qc.run(
             settings=ctx.settings,
+            script_generator=str(script_row.get("generator") or "unknown"),
             video_path=Path(str(video["video_path"])) if video.get("video_path") else None,
             thumbnail_path=Path(str(video["thumbnail_path"]))
             if video.get("thumbnail_path") else None,

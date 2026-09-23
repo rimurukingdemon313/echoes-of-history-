@@ -85,3 +85,15 @@ def test_secrets_never_survive_a_log_line(monkeypatch):
     assert "AIzaSyREALKEY0123456789abcdefghij" not in cleaned
     assert "hunter2" not in cleaned
     assert "AAFFggHHiiJJkkLLmmNNooPPqqRRssTT" not in cleaned
+
+
+def test_the_music_directory_is_resolved_absolutely(settings, tmp_path):
+    """A relative path would silently find no music outside the container.
+
+    The renderer falls back to narration-only when it finds no beds, which
+    is correct behaviour and indistinguishable from a path bug -- so the
+    path must not depend on the working directory.
+    """
+    assert settings.beds_dir.is_absolute()
+    override = settings.with_(music_dir=tmp_path / "beds")
+    assert override.beds_dir == tmp_path / "beds"
