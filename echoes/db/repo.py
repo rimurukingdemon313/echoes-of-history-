@@ -504,13 +504,15 @@ def audio_chunks(audio_job_id: int) -> list[dict[str, Any]]:
     )
 
 
-def finish_audio_job(audio_job_id: int, duration_s: float, storage_key: str) -> None:
+def finish_audio_job(audio_job_id: int, duration_s: float, local_path: str,
+                     storage_key: str | None = None) -> None:
     pool.execute(
-        """UPDATE audio_jobs SET duration_s=%s, storage_key=%s, status='DONE',
+        """UPDATE audio_jobs SET duration_s=%s, local_path=%s, storage_key=%s,
+               status='DONE',
                chunk_done=(SELECT count(*) FROM audio_chunks
                             WHERE audio_job_id=%s AND status='DONE')
             WHERE id=%s""",
-        (duration_s, storage_key, audio_job_id, audio_job_id),
+        (duration_s, local_path, storage_key, audio_job_id, audio_job_id),
     )
 
 
@@ -597,16 +599,24 @@ def render_segments(render_job_id: int) -> list[dict[str, Any]]:
 
 
 def finish_render_job(
-    render_job_id: int, *, duration_s: float, size_bytes: int, storage_key: str
+    render_job_id: int, *, duration_s: float, size_bytes: int, local_path: str,
+    storage_key: str | None = None,
 ) -> None:
+    """Record the finished render.
+
+    ``local_path`` is where the file is now; ``storage_key`` is where it will
+    still be after a redeploy, and is null when storage is not durable. The
+    upload stage reads the first and the recovery path reads the second.
+    """
     pool.execute(
         """UPDATE render_jobs
-              SET status='DONE', duration_s=%s, bytes=%s, storage_key=%s,
-                  finished_at=now(),
+              SET status='DONE', duration_s=%s, bytes=%s, local_path=%s,
+                  storage_key=%s, finished_at=now(),
                   segment_done=(SELECT count(*) FROM render_segments
                                  WHERE render_job_id=%s AND status='DONE')
             WHERE id=%s""",
-        (duration_s, size_bytes, storage_key, render_job_id, render_job_id),
+        (duration_s, size_bytes, local_path, storage_key, render_job_id,
+         render_job_id),
     )
 
 

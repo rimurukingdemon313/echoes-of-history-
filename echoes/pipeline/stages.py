@@ -298,7 +298,8 @@ class RenderStage:
         if not audio_job or not audio_job.get("storage_key"):
             raise Permanent("render ran before narration produced audio")
 
-        narration_path = Path(str(audio_job["storage_key"]))
+        narration_path = Path(str(audio_job.get("local_path")
+                                  or audio_job.get("storage_key") or ""))
         if not narration_path.exists():
             raise Permanent(f"narration audio is missing: {narration_path}")
 
@@ -343,11 +344,16 @@ class RenderStage:
         result = render.assemble(paths, audio_for_mux, out_path, policy,
                                  work_dir=work)
 
-        stored_key = ctx.providers.storage.put(
-            out_path, f"videos/{ctx.job_id}/final.mp4")
-        repo.finish_render_job(render_job_id, duration_s=result.duration_s,
-                               size_bytes=result.size_bytes,
-                               storage_key=str(out_path))
+        storage = ctx.providers.storage
+        stored_key = storage.put(out_path, f"videos/{ctx.job_id}/final.mp4")
+        repo.finish_render_job(
+            render_job_id, duration_s=result.duration_s,
+            size_bytes=result.size_bytes, local_path=str(out_path),
+            # Only claim a durable copy when the storage actually is durable.
+            # Recording a key for a volume that vanishes on redeploy would
+            # send the recovery path looking for a file that is not there.
+            storage_key=stored_key if storage.durable() else None,
+        )
 
         return {"duration_s": round(result.duration_s, 1),
                 "minutes": round(result.duration_s / 60.0, 1),
@@ -454,7 +460,8 @@ class MetadataStage:
             job_id=ctx.job_id, topic_id=ctx.topic_id, title=built.title,
             description=built.description, tags=built.tags,
             chapters_json=built.chapters, duration_s=duration_s,
-            video_path=str(render_job.get("storage_key") or ""),
+            video_path=str(render_job.get("local_path")
+                           or render_job.get("storage_key") or ""),
             thumbnail_path=str(ctx.results.get("thumbnail", {}).get("path") or ""),
             version_stamp=version_stamp(),
         )
