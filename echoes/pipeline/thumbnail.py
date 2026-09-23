@@ -55,6 +55,9 @@ class Concept:
     band_height: float
 
 
+MAX_LINES = 3
+
+
 def _wrap(text: str, draw, font, max_width: int) -> list[str]:
     words = text.split()
     lines: list[str] = []
@@ -68,7 +71,7 @@ def _wrap(text: str, draw, font, max_width: int) -> list[str]:
             current = word
     if current:
         lines.append(current)
-    return lines[:3]
+    return lines[:MAX_LINES]
 
 
 def _luminance_of_band(image, top: int, height: int) -> float:
@@ -79,20 +82,48 @@ def _luminance_of_band(image, top: int, height: int) -> float:
     return sum(pixels) / max(len(pixels), 1) / 255.0
 
 
-def title_for_thumbnail(title: str, limit: int = 42) -> str:
-    """Shorten a title to what fits, cutting at a word boundary."""
+# Words a title must never end on. Cutting "...Laurion and Athenian Power"
+# to fit produced "LAURION AND ATHENIAN", which reads as an error rather than
+# an abbreviation.
+_DANGLING = frozenset(
+    "and or of the a an to in on for with at by from as its their".split()
+)
+
+
+def _trim_dangling(text: str) -> str:
+    words = text.split()
+    while words and words[-1].lower().strip(",;:") in _DANGLING:
+        words.pop()
+    return " ".join(words).rstrip(" ,;:-")
+
+
+def title_for_thumbnail(title: str, limit: int = 56) -> str:
+    """Shorten a title to what fits, without leaving it hanging.
+
+    Three rules, in order of preference:
+
+    1. If it fits, use it whole.
+    2. If it has a natural break -- a colon or a dash -- keep the part before
+       it, which is almost always the subject.
+    3. Otherwise cut at a word boundary and drop any trailing connective, so
+       the result reads as a short title rather than a severed sentence.
+    """
     cleaned = re.sub(r"\s*\|.*$", "", title).strip()
-    cleaned = re.sub(r"\s*[:—-]\s*A Full Documentary.*$", "", cleaned,
-                     flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"\s*[:\u2013\u2014-]\s*A Full Documentary.*$", "",
+                     cleaned, flags=re.IGNORECASE).strip()
     if len(cleaned) <= limit:
         return cleaned
-    words = cleaned.split()
+
+    head = re.split(r"\s*[:\u2013\u2014]\s*", cleaned)[0].strip()
+    if head and len(head) <= limit:
+        return _trim_dangling(head)
+
     out = ""
-    for word in words:
+    for word in cleaned.split():
         if len(f"{out} {word}".strip()) > limit:
             break
         out = f"{out} {word}".strip()
-    return out or cleaned[:limit]
+    return _trim_dangling(out) or cleaned[:limit]
 
 
 def _render_concept(
@@ -110,30 +141,41 @@ def _render_concept(
     base = ImageEnhance.Color(base).enhance(0.82)
     base = ImageEnhance.Contrast(base).enhance(1.12)
 
-    band_top = int(HEIGHT * band_top_frac)
-    band_height = int(HEIGHT * band_height_frac)
+    measure = ImageDraw.Draw(base)
+    margin = 72
+    max_width = WIDTH - margin * 2
 
-    # A blurred, darkened scrim behind the text. This is what makes the title
-    # readable over an arbitrary photograph without hiding the photograph.
-    region = base.crop((0, band_top, WIDTH, min(band_top + band_height, HEIGHT)))
+    # Lay the type out FIRST, then size the scrim to what was actually laid
+    # out. Fixing the scrim height in advance left a three-line title
+    # spilling above its darkened band, where it sat on bare photograph.
+    size = 74
+    font = ImageFont.truetype(font_path, size)
+    words = len(text.split())
+    lines = _wrap(text.upper(), measure, font, max_width)
+    while size > 38 and sum(len(l.split()) for l in lines) < words:
+        size -= 5
+        font = ImageFont.truetype(font_path, size)
+        lines = _wrap(text.upper(), measure, font, max_width)
+
+    line_height = int(size * 1.18)
+    block_height = line_height * len(lines)
+
+    requested_top = int(HEIGHT * band_top_frac)
+    requested_height = int(HEIGHT * band_height_frac)
+    # The band must cover the text with breathing room, wherever the layout
+    # asked for it to sit, and must stay inside the frame.
+    band_height = max(requested_height, block_height + int(size * 0.7))
+    band_top = max(0, min(requested_top, HEIGHT - band_height))
+    if band_top + band_height > HEIGHT:
+        band_height = HEIGHT - band_top
+
+    region = base.crop((0, band_top, WIDTH, band_top + band_height))
     region = region.filter(ImageFilter.GaussianBlur(14))
     region = ImageEnhance.Brightness(region).enhance(scrim)
     base.paste(region, (0, band_top))
 
     draw = ImageDraw.Draw(base)
-    size = 74
-    font = ImageFont.truetype(font_path, size)
-    margin = 72
-    lines = _wrap(text.upper(), draw, font, WIDTH - margin * 2)
-    while len(lines) > 2 and size > 44:
-        size -= 6
-        font = ImageFont.truetype(font_path, size)
-        lines = _wrap(text.upper(), draw, font, WIDTH - margin * 2)
-
-    line_height = int(size * 1.18)
-    block_height = line_height * len(lines)
     y = band_top + (band_height - block_height) // 2
-
     for line in lines:
         width = draw.textlength(line, font=font)
         x = (WIDTH - width) / 2
@@ -153,8 +195,8 @@ def _render_concept(
 
     luminance = _luminance_of_band(base, band_top, block_height or band_height)
     # Text is near-white, so contrast against the band is 1 - its brightness.
-    contrast = 1.0 - luminance
-    return Concept(name, out_path, contrast, band_top_frac, band_height_frac)
+    return Concept(name, out_path, 1.0 - luminance, band_top / HEIGHT,
+                   band_height / HEIGHT)
 
 
 def generate(

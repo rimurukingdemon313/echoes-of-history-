@@ -278,3 +278,46 @@ def test_omitted_image_credits_are_disclosed():
     assert "further sources" in description
     assert len(description) <= DESCRIPTION_MAX
     assert "0:00 C0" in description
+
+
+# --------------------------------------------------------------- thumbnail
+@pytest.mark.parametrize("raw,expected", [
+    # Fits whole.
+    ("Roman Concrete", "Roman Concrete"),
+    # The publishing suffix is not part of the subject.
+    ("The Silver Mines of Laurion and Athenian Power | A Full Documentary",
+     "The Silver Mines of Laurion and Athenian Power"),
+    # A colon is a natural break; keep the subject.
+    ("Cahokia: The City on the Mississippi | A Full Documentary",
+     "Cahokia: The City on the Mississippi"),
+])
+def test_thumbnail_titles_are_not_mangled(raw, expected):
+    from echoes.pipeline.thumbnail import title_for_thumbnail
+    assert title_for_thumbnail(raw) == expected
+
+
+def test_a_truncated_thumbnail_title_never_ends_on_a_connective():
+    """'...LAURION AND ATHENIAN' reads as a bug, not an abbreviation."""
+    from echoes.pipeline.thumbnail import title_for_thumbnail
+    long_title = ("Monsoon Trade and the Swahili Coast of East Africa in the "
+                  "Medieval Period and Beyond")
+    out = title_for_thumbnail(long_title)
+    assert out.split()[-1].lower() not in {"and", "of", "the", "in", "a", "to"}
+    assert len(out) <= 56
+
+
+def test_the_whole_title_is_drawn_even_when_it_needs_three_lines(tmp_path):
+    """Shrinking the typeface is right; silently dropping the end is not."""
+    from echoes.pipeline.thumbnail import generate, find_font
+    from echoes.providers.images.synthetic import SyntheticImageProvider
+    if not find_font():
+        pytest.skip("no TrueType font available")
+    import pathlib
+    plates = [pathlib.Path(c.extra["local_path"]) for c in
+              SyntheticImageProvider(tmp_path / "p", 2304, 1296).search("x", limit=2)]
+    concept = generate(plates, "The Harbour at Caesarea Maritima and the Grain Fleets",
+                       tmp_path / "t")
+    from PIL import Image
+    with Image.open(concept.path) as image:
+        assert image.size == (1280, 720)
+    assert concept.contrast > 0.3

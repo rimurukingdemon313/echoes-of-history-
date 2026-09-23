@@ -327,7 +327,7 @@ export ECHOES_TEST_DATABASE_URL=postgresql://...   # for the database tests
 .venv/bin/python -m pytest
 ```
 
-144 tests. They assert behaviour, not shape: scenarios are constructed so the
+149 tests. They assert behaviour, not shape: scenarios are constructed so the
 correct answer is known, the clock is pinned, and the encoder is real ffmpeg
 rather than a mock. Several of them found real bugs in this code and the code
 changed.

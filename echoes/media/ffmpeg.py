@@ -180,7 +180,12 @@ def normalise_loudness(
     _run([
         "ffmpeg", "-y", "-loglevel", "error", "-i", str(src),
         "-af", f"loudnorm=I={lufs}:TP={true_peak}:LRA=11",
-        "-ar", str(sample_rate), "-c:a", codec, "-b:a", bitrate,
+        # Two channels even though the narration is mono. The music-bed path
+        # already delivers stereo; matching it here means a documentary's
+        # channel layout does not depend on whether a bed happened to be
+        # present, which is not something a viewer should be able to notice.
+        "-ar", str(sample_rate), "-ac", "2",
+        "-c:a", codec, "-b:a", bitrate,
         str(out_path),
     ], what="loudness normalisation")
     return probe(out_path).duration_s
