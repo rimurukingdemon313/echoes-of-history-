@@ -86,7 +86,27 @@ needs local scratch space, but finished media survives independently.
 Everything from `.env.example`. `DATABASE_URL` comes from the Postgres plugin;
 Railway injects `PORT` itself.
 
-### 4. Health check
+### 4. Turn on automatic deploys — check this explicitly
+
+Service → **Settings** → **Source** → under *Branch connected to production*
+the branch must be `main`, and the line below it must **not** read
+*Auto deploy is disabled*. If it does, press **Enable**.
+
+This is easy to miss and the symptom is misleading. With auto-deploy off,
+pushing a fix to `main` does nothing, and the service keeps serving the old
+build — so the bug you just fixed appears to survive the fix.
+
+Two things that look like a fix and are not:
+
+- **Redeploy** re-runs the *same* commit that is already deployed. It does not
+  fetch anything new from GitHub.
+- **Enabling** auto-deploy does not deploy commits that were pushed while it
+  was off. It applies from the next push onward.
+
+To confirm which code is live, open **Deployments**: each entry shows the
+commit message it was built from. Compare it with the latest commit on `main`.
+
+### 5. Health check
 
 `railway.json` already points the health check at `/healthz` with a 300-second
 start period. `/healthz` deliberately still answers when startup has failed,
