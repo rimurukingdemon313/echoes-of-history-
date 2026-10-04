@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       fonts-dejavu-core \
       curl \
       tini \
+      gosu \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -44,18 +45,27 @@ RUN mkdir -p /app/voices && \
 COPY echoes ./echoes
 COPY assets ./assets
 
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+
 # Writable state. On Railway this path must be a mounted volume, or every
 # redeploy discards work in progress. The doctor command reports whether it
 # actually looks like a volume.
+#
+# Note there is no USER directive. The container starts as root so that
+# entrypoint.sh can take ownership of a freshly mounted volume -- which
+# arrives owned by root and would otherwise be unwritable -- and the
+# entrypoint then drops to this user with gosu. The application never runs
+# as root.
 RUN mkdir -p /app/data/media /app/data/work /app/data/cache && \
-    useradd -r -u 10001 -m echoes && chown -R echoes:echoes /app
-USER echoes
+    useradd -r -u 10001 -m echoes && \
+    chown -R echoes:echoes /app && \
+    chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 8080
 
 # tini reaps the ffmpeg children a render spawns; without it a long run
 # accumulates zombies until the container runs out of processes.
-ENTRYPOINT ["/usr/bin/tini", "--"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -fsS "http://127.0.0.1:${PORT:-8080}/healthz" || exit 1

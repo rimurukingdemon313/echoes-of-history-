@@ -13,7 +13,7 @@ import os
 import shutil
 from pathlib import Path
 
-from ...errors import Permanent
+from ...errors import ConfigError, Permanent
 from ...logging import get_logger
 
 log = get_logger(__name__)
@@ -24,7 +24,35 @@ class LocalStorage:
 
     def __init__(self, root: Path, *, assume_durable: bool | None = None) -> None:
         self._root = Path(root)
-        self._root.mkdir(parents=True, exist_ok=True)
+        try:
+            self._root.mkdir(parents=True, exist_ok=True)
+        except PermissionError as exc:
+            # The usual cause is a mounted volume: it arrives owned by root
+            # and replaces the directory the image created, so a container
+            # that has dropped to a non-root user cannot write to it. A bare
+            # "Errno 13" costs an operator an afternoon; naming the cause
+            # costs one line.
+            raise ConfigError(
+                f"Cannot write to {self._root}: {exc.strerror}. This is "
+                f"almost always a mounted volume owned by root while the "
+                f"application runs unprivileged. Check that the volume's "
+                f"mount path matches DATA_DIR ({self._root.parent}), and "
+                f"that the image's entrypoint takes ownership of it at "
+                f"startup."
+            ) from exc
+        # Writing is what actually matters, and a directory can exist while
+        # being unwritable. Finding that out here beats finding it out
+        # ninety minutes into a render.
+        probe = self._root / ".write-test"
+        try:
+            probe.touch()
+            probe.unlink()
+        except OSError as exc:
+            raise ConfigError(
+                f"{self._root} exists but is not writable: {exc}. If this is "
+                f"a mounted volume, its ownership does not match the user "
+                f"this process runs as."
+            ) from exc
         self._assume_durable = assume_durable
 
     def _path(self, key: str) -> Path:
